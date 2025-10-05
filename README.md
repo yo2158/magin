@@ -75,7 +75,7 @@ MAGINは、各AIが 4つの観点（妥当性・実現可能性・リスク・�
 ### ステップ1: リポジトリのクローン
 
 ```bash
-git clone https://github.com/yourusername/magin.git
+git clone https://github.com/yo2158/magin.git
 cd magin
 ```
 
@@ -297,7 +297,7 @@ codex   # Codexログイン確認
 
 ## 📞 質問・不具合報告
 
-[Issues](https://github.com/yourusername/magin/issues) まで
+[Issues](https://github.com/yo2158/magin/issues) まで
 
 ---
 
