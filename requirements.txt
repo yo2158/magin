@@ -1,0 +1,17 @@
+# FastAPI Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Pydantic for data validation
+pydantic>=2.4.0
+
+# Async SQLite
+aiosqlite>=0.19.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+httpx>=0.25.0  # for TestClient in FastAPI tests
+
+# Development
+python-dotenv>=1.0.0  # for .env file support

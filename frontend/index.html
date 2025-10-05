@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAGIN System - Multi-AI Governance Interface</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Russo+One&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- ヘッダー -->
+    <div class="header">
+        <h1>MAGIN System v1.0b</h1>
+        <p>Multi-AI Governance Interface Node</p>
+        <div class="mode-toggle">
+            <span class="mode-label mode-label-full" style="font-size: 12px;">FULL MODE</span>
+            <div class="toggle-switch" id="modeToggle"></div>
+            <span class="mode-label mode-label-simple" style="font-size: 12px;">SIMPLE</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 入力セクション -->
+        <div class="input-section">
+            <label for="agenda-input">
+                PROPOSITION INPUT_
+                <span class="tooltip-icon" title="入力文字数: 1-2000文字">?</span>
+            </label>
+            <textarea id="agenda-input" placeholder="意思決定したい内容を入力してください...&#10;例: 週休3日制を法律で義務化すべきか"></textarea>
+            <div class="button-group">
+                <button class="btn" id="startBtn">JUDGEMENT START</button>
+                <button class="btn btn-secondary" id="historyBtn">HISTORY</button>
+            </div>
+        </div>
+
+        <!-- プログレスバー -->
+        <div class="progress-section" id="progressSection">
+            <div class="progress-label">DELIBERATION PROGRESS</div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-text" id="progressText">0% (0/3 COMPLETE)</div>
+        </div>
+
+        <!-- MAGIシステム本体 -->
+        <div class="magi-system-wrapper" id="magi-system-wrapper">
+            <div style="position: absolute; top: 10px; left: 10px; font-size: 12px; color: #888;">
+                SESSION_ID: <span id="session-id">_</span><br>
+                SYSTEM_TIME(JST): <span id="system-time">--:--:--</span><br>
+                AUTH_LEVEL: AAA<br>
+                EIGENSTATE: STABLE<br>
+                S2_ENGINE_OUTPUT: NOMINAL<br>
+                SUB-ETHER_RELAY: CONNECTED
+            </div>
+
+            <div class="status-area">
+                <div id="status-text" class="status-text">STANDBY</div>
+            </div>
+
+            <div class="pipe pipe-g" id="pipe-g"></div>
+            <div class="pipe pipe-c1" id="pipe-c1"></div>
+            <div class="pipe pipe-c2" id="pipe-c2"></div>
+            <div class="pipe pipe-ch1" id="pipe-ch1"></div>
+            <div class="pipe pipe-ch2" id="pipe-ch2"></div>
+
+            <div class="diagram-center">
+                <div class="magi-hub-text">MAGIN SYSTEM</div>
+            </div>
+
+            <!-- Gemini (Top) -->
+            <div class="ai-unit" id="gemini" data-ai="gemini">
+                <div class="ai-unit-name">GEMINI</div>
+                <div class="ai-unit-status" id="status-gemini">IDLE</div>
+            </div>
+
+            <!-- Claude (Bottom Left) -->
+            <div class="ai-unit" id="claude" data-ai="claude">
+                <div class="ai-unit-name">CLAUDE</div>
+                <div class="ai-unit-status" id="status-claude">IDLE</div>
+            </div>
+
+            <!-- ChatGPT (Bottom Right) -->
+            <div class="ai-unit" id="chatgpt" data-ai="chatgpt">
+                <div class="ai-unit-name">CHATGPT</div>
+                <div class="ai-unit-status" id="status-chatgpt">IDLE</div>
+            </div>
+
+            <div class="final-result-overlay" id="finalResult">
+                <div class="final-result-title">> FINAL VERDICT</div>
+                <div class="final-decision" id="finalDecisionText"></div>
+            </div>
+        </div>
+
+        <!-- サマリレポート -->
+        <div class="summary-report" id="summaryReport">
+            <div class="summary-header">FINAL VERDICT SUMMARY</div>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <div class="summary-label">DECISION</div>
+                    <div class="summary-value" id="summaryDecision">---</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">SEVERITY</div>
+                    <div class="summary-value" id="summarySeverity">---</div>
+                </div>
+            </div>
+            <div class="summary-reasoning">
+                <div class="summary-label">REASONING</div>
+                <div class="summary-text" id="summaryReasoning">---</div>
+            </div>
+            <div class="summary-hard-flag" id="summaryHardFlagSection" style="display: none;">
+                <div class="summary-label">⚠️ HARD FLAG DETECTED</div>
+                <div class="summary-text hard-flag-text" id="summaryHardFlag">---</div>
+            </div>
+            <div class="ai-decisions-compact">
+                <div class="summary-label">AI DECISIONS & REASONING</div>
+                <div class="ai-decision-compact" id="summaryClaudeDecision">
+                    <span class="ai-name-compact">Claude:</span>
+                    <span class="decision-compact">---</span> - <span class="reasoning-compact">---</span>
+                </div>
+                <div class="ai-decision-compact" id="summaryGeminiDecision">
+                    <span class="ai-name-compact">Gemini:</span>
+                    <span class="decision-compact">---</span> - <span class="reasoning-compact">---</span>
+                </div>
+                <div class="ai-decision-compact" id="summaryChatGPTDecision">
+                    <span class="ai-name-compact">ChatGPT:</span>
+                    <span class="decision-compact">---</span> - <span class="reasoning-compact">---</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- シンプルモード出力 -->
+        <div class="simple-output" id="simpleOutput"></div>
+    </div>
+
+    <!-- AIディテールモーダル -->
+    <div class="modal" id="aiModal">
+        <div class="modal-content">
+            <button class="modal-close" id="closeAIModal">×</button>
+            <h2 id="aiModalTitle">AI DETAIL</h2>
+
+            <!-- 4-Aspect Scores Display -->
+            <div class="detail-section">
+                <div class="detail-label">4-ASPECT SCORES</div>
+                <div class="scores-grid">
+                    <div class="score-item">
+                        <span class="score-label">VALIDITY:</span>
+                        <span class="score-value" id="aiModalValidity">---</span>
+                    </div>
+                    <div class="score-item">
+                        <span class="score-label">FEASIBILITY:</span>
+                        <span class="score-value" id="aiModalFeasibility">---</span>
+                    </div>
+                    <div class="score-item">
+                        <span class="score-label">RISK:</span>
+                        <span class="score-value" id="aiModalRisk">---</span>
+                    </div>
+                    <div class="score-item">
+                        <span class="score-label">CERTAINTY:</span>
+                        <span class="score-value" id="aiModalCertainty">---</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hard Flag Warning -->
+            <div class="detail-section" id="hardFlagSection" style="display: none;">
+                <div class="detail-label hard-flag-label">⚠️ HARD FLAG DETECTED</div>
+                <div class="detail-value hard-flag-value" id="aiModalHardFlag">---</div>
+            </div>
+
+            <div class="detail-section">
+                <div class="detail-label">DECISION</div>
+                <div class="detail-value" id="aiModalDecision">---</div>
+            </div>
+            <div class="detail-section">
+                <div class="detail-label">SEVERITY SCORE</div>
+                <div class="detail-value" id="aiModalSeverity">---</div>
+            </div>
+            <div class="detail-section">
+                <div class="detail-label">REASONING</div>
+                <div class="detail-value" id="aiModalReason">---</div>
+            </div>
+            <div class="detail-section">
+                <div class="detail-label">KEY CONCERNS</div>
+                <ul class="concerns-list" id="aiModalConcerns"></ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- 履歴詳細モーダル -->
+    <div class="modal" id="historyDetailModal">
+        <div class="modal-content" style="max-width: 1000px;">
+            <button class="modal-close" id="closeHistoryDetailModal">×</button>
+            <h2>JUDGMENT DETAIL</h2>
+
+            <!-- 議題表示 -->
+            <div class="detail-section">
+                <div class="detail-label">PROPOSITION</div>
+                <div class="detail-value" id="detailIssue">---</div>
+            </div>
+
+            <!-- 最終判定 -->
+            <div class="detail-section">
+                <div class="detail-label">FINAL VERDICT</div>
+                <div class="detail-value" id="detailResult">---</div>
+            </div>
+
+            <!-- AI判断結果サマリ -->
+            <div class="detail-section">
+                <div class="detail-label">AI DECISIONS</div>
+                <div class="ai-decisions-summary">
+                    <div class="ai-decision-row">
+                        <span class="ai-name">Claude:</span>
+                        <span class="decision-text" id="detailClaudeDecision">---</span>
+                        <span class="reasoning-text" id="detailClaudeReasoning">---</span>
+                    </div>
+                    <div class="ai-decision-row">
+                        <span class="ai-name">Gemini:</span>
+                        <span class="decision-text" id="detailGeminiDecision">---</span>
+                        <span class="reasoning-text" id="detailGeminiReasoning">---</span>
+                    </div>
+                    <div class="ai-decision-row">
+                        <span class="ai-name">ChatGPT:</span>
+                        <span class="decision-text" id="detailChatGPTDecision">---</span>
+                        <span class="reasoning-text" id="detailChatGPTReasoning">---</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 重大度情報 -->
+            <div class="detail-section">
+                <div class="detail-label">SEVERITY LEVEL</div>
+                <div class="detail-value" id="detailSeverity">---</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 履歴モーダル -->
+    <div class="modal" id="historyModal">
+        <div class="modal-content" style="max-width: 900px;">
+            <button class="modal-close" id="closeHistoryModal">×</button>
+            <h2>JUDGEMENT HISTORY</h2>
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th>DATE</th>
+                        <th>PROPOSITION</th>
+                        <th>RESULT</th>
+                        <th>SEVERITY</th>
+                        <th>ACTION</th>
+                    </tr>
+                </thead>
+                <tbody id="historyTableBody">
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: #666;">NO HISTORY DATA</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
