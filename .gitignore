@@ -51,6 +51,7 @@ htmlcov/
 .mcp.json
 .memory-keeper/
 CLAUDE.md
+tests/
 
 # Trash
 trash/
