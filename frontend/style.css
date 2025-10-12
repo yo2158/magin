@@ -198,6 +198,14 @@ body.simple-mode {
     background: #555;
 }
 
+.btn-danger {
+    background: #dc3545;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #c82333;
+}
+
 /* プログレスバー */
 .progress-section {
     background: #1a1a1a;

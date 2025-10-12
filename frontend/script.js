@@ -76,6 +76,7 @@ const elements = {
     // Input
     agendaInput: document.getElementById('agenda-input'),
     startBtn: document.getElementById('startBtn'),
+    cancelBtn: document.getElementById('cancelBtn'),
     historyBtn: document.getElementById('historyBtn'),
     configBtn: document.getElementById('configBtn'),
 
@@ -735,6 +736,8 @@ async function startJudgment() {
     // Start judgment
     judgmentInProgress = true;
     elements.startBtn.disabled = true;
+    elements.startBtn.style.display = 'none';
+    elements.cancelBtn.style.display = 'inline-block';
     elements.magiWrapper.style.display = 'block';
     elements.progressSection.style.display = 'block';
     resetUI();
@@ -922,6 +925,12 @@ async function startJudgment() {
                 // Show final decision (wait for triangle effect to complete)
                 setTimeout(() => {
                     showFinalDecision(currentJudgment);
+
+                    // Reset buttons after final decision
+                    judgmentInProgress = false;
+                    elements.startBtn.disabled = false;
+                    elements.startBtn.style.display = 'inline-block';
+                    elements.cancelBtn.style.display = 'none';
                 }, 1200); // Triangle completes at ~800ms, add 400ms breathing room
 
             } else if (data.type === 'error') {
@@ -934,6 +943,8 @@ async function startJudgment() {
                 // Reset state
                 judgmentInProgress = false;
                 elements.startBtn.disabled = false;
+                elements.startBtn.style.display = 'inline-block';
+                elements.cancelBtn.style.display = 'none';
 
                 // Mark all AIs as failed
                 ['gemini', 'claude', 'chatgpt'].forEach(ai => {
@@ -952,11 +963,34 @@ async function startJudgment() {
             // Reset state
             judgmentInProgress = false;
             elements.startBtn.disabled = false;
+            elements.startBtn.style.display = 'inline-block';
+            elements.cancelBtn.style.display = 'none';
 
             // Mark all AIs as failed
             ['gemini', 'claude', 'chatgpt'].forEach(ai => {
                 updateAIUnit(ai, null);
             });
+        };
+
+        // Store eventSource reference for cancel button
+        elements.cancelBtn.onclick = () => {
+            const confirmed = confirm('判定処理を中断しますか？');
+            if (confirmed) {
+                eventSource.close();
+
+                elements.statusText.textContent = 'CANCELLED';
+
+                // Reset state
+                judgmentInProgress = false;
+                elements.startBtn.disabled = false;
+                elements.startBtn.style.display = 'inline-block';
+                elements.cancelBtn.style.display = 'none';
+
+                // Mark all AIs as cancelled
+                ['gemini', 'claude', 'chatgpt'].forEach(ai => {
+                    updateAIUnit(ai, null);
+                });
+            }
         };
 
     } catch (error) {
@@ -968,6 +1002,8 @@ async function startJudgment() {
         // Reset state
         judgmentInProgress = false;
         elements.startBtn.disabled = false;
+        elements.startBtn.style.display = 'inline-block';
+        elements.cancelBtn.style.display = 'none';
 
         // Mark all AIs as failed
         ['gemini', 'claude', 'chatgpt'].forEach(ai => {
