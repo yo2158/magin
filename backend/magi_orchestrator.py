@@ -820,7 +820,8 @@ async def run_parallel_judgment(
 
     # Task 2.1.2: Check minimum 2 AIs responded successfully
     if successful_count < 2:
-        raise ValueError("At least 2 AIs must respond")
+        failed_ais = [r.get("ai_name", "Unknown") for r in processed_results if not r["success"]]
+        raise ValueError(f"判定に必要な最低2つのAIが応答しませんでした。\n設定を確認してください。（失敗: {', '.join(failed_ais)}）")
 
     return processed_results
 
