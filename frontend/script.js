@@ -927,7 +927,18 @@ async function startJudgment() {
             } else if (data.type === 'error') {
                 // Error occurred
                 eventSource.close();
-                throw new Error(data.error);
+
+                elements.statusText.textContent = 'ERROR';
+                alert(`エラーが発生しました:\n\n${data.error}`);
+
+                // Reset state
+                judgmentInProgress = false;
+                elements.startBtn.disabled = false;
+
+                // Mark all AIs as failed
+                ['gemini', 'claude', 'chatgpt'].forEach(ai => {
+                    updateAIUnit(ai, null);
+                });
             }
         };
 
