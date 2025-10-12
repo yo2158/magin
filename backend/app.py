@@ -637,7 +637,7 @@ async def test_connections_endpoint():
   "scores": {"validity": 1.0, "feasibility": 1.0, "risk": 0.0, "certainty": 1.0},
   "reason": "接続テスト成功"
 }"""
-        timeout = 300
+        timeout = 30  # 30 seconds timeout for connection test
 
         # Test each node
         async def test_node(node):
