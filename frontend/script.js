@@ -349,20 +349,8 @@ function copyFallback(text) {
     const textarea = document.createElement('textarea');
     textarea.value = text;
     textarea.style.position = 'fixed';
-    textarea.style.top = '50%';
-    textarea.style.left = '50%';
-    textarea.style.transform = 'translate(-50%, -50%)';
-    textarea.style.width = '80%';
-    textarea.style.maxWidth = '600px';
-    textarea.style.height = '400px';
-    textarea.style.padding = '20px';
-    textarea.style.fontSize = '14px';
-    textarea.style.fontFamily = 'monospace';
-    textarea.style.background = '#1a1a1a';
-    textarea.style.color = '#e0e0e0';
-    textarea.style.border = '2px solid var(--orange)';
-    textarea.style.borderRadius = '8px';
-    textarea.style.zIndex = '10000';
+    textarea.style.top = '-9999px';
+    textarea.style.left = '-9999px';
     textarea.readOnly = true;
 
     document.body.appendChild(textarea);
@@ -379,18 +367,10 @@ function copyFallback(text) {
     } catch (error) {
         console.error('Fallback copy failed:', error);
         alert('コピーに失敗しました。手動でコピーしてください。');
-    }
-
-    // Remove textarea after 3 seconds or on click
-    setTimeout(() => {
-        if (document.body.contains(textarea)) {
-            document.body.removeChild(textarea);
-        }
-    }, 3000);
-
-    textarea.addEventListener('click', () => {
+    } finally {
+        // Remove textarea immediately
         document.body.removeChild(textarea);
-    });
+    }
 }
 
 /**
