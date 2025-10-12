@@ -2718,7 +2718,7 @@ function closeTestResultsModal() {
 }
 
 /**
- * Create test loading modal (v1.3)
+ * Create test loading modal with countdown (v1.3)
  */
 function createTestLoadingModal() {
     // Remove existing modal if present
@@ -2735,12 +2735,31 @@ function createTestLoadingModal() {
                     <div class="spinner" style="margin: 0 auto 20px;"></div>
                     <p style="font-size: 16px; color: #00ff00;">Testing connections...</p>
                     <p style="font-size: 13px; color: #888; margin-top: 10px;">Please wait while we verify all nodes.</p>
+                    <p id="testCountdown" style="font-size: 14px; color: #ff6b00; margin-top: 15px; font-weight: bold;">Timeout: 30s</p>
                 </div>
             </div>
         </div>
     `;
 
     document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    // Start countdown
+    let remaining = 30;
+    const countdownEl = document.getElementById('testCountdown');
+    const countdownInterval = setInterval(() => {
+        remaining--;
+        if (countdownEl) {
+            countdownEl.textContent = `Timeout: ${remaining}s`;
+        }
+        if (remaining <= 0) {
+            clearInterval(countdownInterval);
+        }
+    }, 1000);
+
+    // Store interval ID so we can clear it when closing modal
+    if (countdownEl) {
+        countdownEl.dataset.intervalId = countdownInterval;
+    }
 }
 
 /**
