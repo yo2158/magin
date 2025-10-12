@@ -89,7 +89,7 @@ git clone https://github.com/yo2158/magin.git
 cd magin
 
 # 仮想環境作成（推奨）
-python3 -m venv venv
+python3 -m venv venv  # Windows: python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # 依存パッケージをインストール

@@ -45,7 +45,7 @@ DEFAULT_PERSONA_IDS = {
 }
 
 # プロンプトテンプレートのパス
-PROMPT_TEMPLATE_PATH = Path(__file__).parent.parent / "trash" / "v1_1" / "prompt_template_v1_1draft.md"
+PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompt_template.md"
 
 def load_personas() -> Dict[str, Any]:
     """
