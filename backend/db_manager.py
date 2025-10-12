@@ -74,6 +74,48 @@ def init_db(db_path: str = DB_PATH) -> None:
         ON judgments(created_at DESC)
     """)
 
+    # Add persona columns if they don't exist (v1.1 migration)
+    # Check if persona columns exist
+    cursor.execute("PRAGMA table_info(judgments)")
+    columns = [row[1] for row in cursor.fetchall()]
+
+    if "persona_claude" not in columns:
+        cursor.execute("ALTER TABLE judgments ADD COLUMN persona_claude TEXT")
+        logger.info("Added persona_claude column to judgments table")
+
+    if "persona_gemini" not in columns:
+        cursor.execute("ALTER TABLE judgments ADD COLUMN persona_gemini TEXT")
+        logger.info("Added persona_gemini column to judgments table")
+
+    if "persona_chatgpt" not in columns:
+        cursor.execute("ALTER TABLE judgments ADD COLUMN persona_chatgpt TEXT")
+        logger.info("Added persona_chatgpt column to judgments table")
+
+    # Add engine/model columns if they don't exist (v1.3 migration)
+    if "engine_claude" not in columns:
+        cursor.execute("ALTER TABLE judgments ADD COLUMN engine_claude TEXT")
+        logger.info("Added engine_claude column to judgments table")
+
+    if "engine_gemini" not in columns:
+        cursor.execute("ALTER TABLE judgments ADD COLUMN engine_gemini TEXT")
+        logger.info("Added engine_gemini column to judgments table")
+
+    if "engine_chatgpt" not in columns:
+        cursor.execute("ALTER TABLE judgments ADD COLUMN engine_chatgpt TEXT")
+        logger.info("Added engine_chatgpt column to judgments table")
+
+    if "model_claude" not in columns:
+        cursor.execute("ALTER TABLE judgments ADD COLUMN model_claude TEXT")
+        logger.info("Added model_claude column to judgments table")
+
+    if "model_gemini" not in columns:
+        cursor.execute("ALTER TABLE judgments ADD COLUMN model_gemini TEXT")
+        logger.info("Added model_gemini column to judgments table")
+
+    if "model_chatgpt" not in columns:
+        cursor.execute("ALTER TABLE judgments ADD COLUMN model_chatgpt TEXT")
+        logger.info("Added model_chatgpt column to judgments table")
+
     conn.commit()
     conn.close()
 
@@ -89,11 +131,13 @@ def save_judgment(judgment: Dict[str, Any], db_path: str = DB_PATH) -> int:
             {
                 "issue": str,
                 "result": str,
-                "avg_severity": float,
+                "avg_severity": float,  # DEPRECATED: Actually stores judgment_severity (max logic, not average)
+                "judgment_severity": float,  # The actual judgment severity (max of AI severities)
                 "claude": Optional[Dict] with {decision, severity, reason, concerns, elapsed_seconds},
                 "gemini": Optional[Dict],
                 "chatgpt": Optional[Dict],
-                "reasoning": str
+                "reasoning": str,
+                "persona_names": Optional[Dict] with {claude, gemini, chatgpt}
             }
         db_path: Path to SQLite database file (default from config.DB_PATH)
 
@@ -112,11 +156,25 @@ def save_judgment(judgment: Dict[str, Any], db_path: str = DB_PATH) -> int:
         gemini = judgment.get("gemini")
         chatgpt = judgment.get("chatgpt")
 
+        # Extract persona names (v1.1)
+        persona_names = judgment.get("persona_names", {})
+        persona_claude = persona_names.get("claude")
+        persona_gemini = persona_names.get("gemini")
+        persona_chatgpt = persona_names.get("chatgpt")
+
         # Helper function to serialize concerns list
         def serialize_concerns(ai_data: Optional[Dict]) -> Optional[str]:
             if ai_data and "concerns" in ai_data:
                 return json.dumps(ai_data["concerns"])
             return None
+
+        # IMPORTANT: avg_severity column stores judgment_severity (max logic) for backward compatibility
+        # judgment_severity is the correct value to save (not avg_severity)
+        severity_to_save = judgment.get("judgment_severity", judgment.get("avg_severity", 0.0))
+
+        # Extract engine and model info
+        ai_engines = judgment.get("ai_engines", {})
+        ai_models = judgment.get("ai_models", {})
 
         cursor.execute("""
             INSERT INTO judgments (
@@ -124,12 +182,15 @@ def save_judgment(judgment: Dict[str, Any], db_path: str = DB_PATH) -> int:
                 claude_decision, claude_severity, claude_reason, claude_concerns, claude_elapsed,
                 gemini_decision, gemini_severity, gemini_reason, gemini_concerns, gemini_elapsed,
                 chatgpt_decision, chatgpt_severity, chatgpt_reason, chatgpt_concerns, chatgpt_elapsed,
-                reasoning
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                reasoning,
+                persona_claude, persona_gemini, persona_chatgpt,
+                engine_claude, engine_gemini, engine_chatgpt,
+                model_claude, model_gemini, model_chatgpt
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             judgment["issue"],
             judgment["result"],
-            judgment["avg_severity"],
+            severity_to_save,  # Save judgment_severity in avg_severity column
 
             claude["decision"] if claude else None,
             claude["severity"] if claude else None,
@@ -149,7 +210,19 @@ def save_judgment(judgment: Dict[str, Any], db_path: str = DB_PATH) -> int:
             serialize_concerns(chatgpt),
             chatgpt["elapsed_seconds"] if chatgpt else None,
 
-            judgment["reasoning"]
+            judgment["reasoning"],
+
+            persona_claude,
+            persona_gemini,
+            persona_chatgpt,
+
+            ai_engines.get("claude"),
+            ai_engines.get("gemini"),
+            ai_engines.get("chatgpt"),
+
+            ai_models.get("claude"),
+            ai_models.get("gemini"),
+            ai_models.get("chatgpt")
         ))
 
         row_id = cursor.lastrowid
@@ -213,6 +286,18 @@ def get_history(limit: int = 10, offset: int = 0, db_path: str = DB_PATH) -> Dic
                         item[concerns_key] = json.loads(item[concerns_key])
                     except json.JSONDecodeError:
                         item[concerns_key] = []
+
+            # Reconstruct ai_engines and ai_models objects (v1.3)
+            item["ai_engines"] = {
+                "claude": item.get("engine_claude"),
+                "gemini": item.get("engine_gemini"),
+                "chatgpt": item.get("engine_chatgpt")
+            }
+            item["ai_models"] = {
+                "claude": item.get("model_claude"),
+                "gemini": item.get("model_gemini"),
+                "chatgpt": item.get("model_chatgpt")
+            }
 
             items.append(item)
 
@@ -300,18 +385,36 @@ def get_judgment_by_id(judgment_id: int, db_path: str = DB_PATH) -> Optional[Dic
             }
 
         # Build nested structure
+        # IMPORTANT: avg_severity column actually stores judgment_severity (max logic)
+        judgment_severity = item["avg_severity"]  # This is actually judgment_severity
+
         result = {
             "id": item["id"],
             "issue": item["issue"],
             "result": item["result"],
-            "avg_severity": item["avg_severity"],
-            "judgment_severity": item.get("avg_severity"),  # Use avg_severity as fallback
+            "avg_severity": judgment_severity,  # Keep for backward compatibility
+            "judgment_severity": judgment_severity,  # This is the correct value
             "severity_level": None,  # Not stored in DB, will be calculated
             "claude": build_ai_response("claude"),
             "gemini": build_ai_response("gemini"),
             "chatgpt": build_ai_response("chatgpt"),
             "reasoning": item["reasoning"],
-            "created_at": item["created_at"]
+            "created_at": item["created_at"],
+            "persona_names": {
+                "claude": item.get("persona_claude"),
+                "gemini": item.get("persona_gemini"),
+                "chatgpt": item.get("persona_chatgpt")
+            },
+            "ai_engines": {
+                "claude": item.get("engine_claude"),
+                "gemini": item.get("engine_gemini"),
+                "chatgpt": item.get("engine_chatgpt")
+            },
+            "ai_models": {
+                "claude": item.get("model_claude"),
+                "gemini": item.get("model_gemini"),
+                "chatgpt": item.get("model_chatgpt")
+            }
         }
 
         logger.info(f"Retrieved judgment ID {judgment_id}")

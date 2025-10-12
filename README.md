@@ -12,24 +12,24 @@
 
 ![MAGIN Demo](img/demo.gif)
 
----
-
 ## 📖 何ができるか
 
-MAGINは、**Claude、Gemini、ChatGPTの3つのAIに同時に質問**し、それぞれの判断を比較できるWebアプリケーションです。
+MAGINは、**3つのAIに同時に質問**し、それぞれの判断を比較できるWebアプリケーションです。
 
 ### 主な特徴
 
-- **3AI並列判定**: 異なる3つのAI（Claude/Gemini/ChatGPT）が独立して判断
-- **意見の可視化**: 各AIの判定結果、重大度スコア、懸念点を一覧表示
+- **3AI並列判定**: 異なる3つのAIが独立して判断
+- **ペルソナシステム**: 定義済みの複数種類のペルソナから各AIの個性を選択可能
+- **意見の可視化**: 各AIの判定結果、重大度スコア、懸念点を表示
 - **判定履歴の保存**: 過去の判定をデータベースに保存、後から確認可能
+- **複数エンジン設定**: Gemini API、Claude CodeなどのCLIエージェント、OpenRouter、Ollama対応
 
 ### 判定の仕組み
 
-MAGINは、各AIが 4つの観点（妥当性・実現可能性・リスク・情報確実性）でスコアリングし、重大度に応じた判定テーブルで最終結果を決定します。
+MAGINは、各AIが 4つの観点（妥当性・実現可能性・リスク・情報確実性）とペルソナ毎の判断基準、重大度に応じた判定テーブルで最終結果を決定します。
 
 **判定フロー**:
-1. 各AIが4観点スコアリング
+1. 各AIが4観点スコアリングとペルソナごとの基準に応じて判断
 2. ハードフラグチェック（コンプライアンス・セキュリティ・プライバシー）
 3. 重大度別判定テーブル適用
 4. 最終判定（承認/条件付き承認/否決）
@@ -38,24 +38,25 @@ MAGINは、各AIが 4つの観点（妥当性・実現可能性・リスク・�
 
 ### 使用例
 
-- 「週休3日制を導入すべきか？」
-- 「新機能Xを実装すべきか？」
-- 「予算を増額すべきか？」
+- 「ワークライフバランスのため週休3日制を導入すべき」
+- 「IT企業では従業員の満足度向上や労働環境改善のため全社的にリモートワークを導入すべき」
+- 「経営者は物価高に対応して、賃金を十分に上げるべきである」
 
 ---
 
 ## ⚠️ 前提条件
 
-このツールを動かすには以下がすべて必要です：
+このツールを動かすには以下いずれかが必要です。
 
+- **Gemini APIキー**利用可能（無料～）
+- **Gemini CLI**利用可能（無料～）
 - **Claude Code**利用可能プラン契約済み（月額$20～）
 - **ChatGPT Plus**以上でCodex CLI利用可能（月額$20〜）
-- **Gemini CLI**利用可能（無料～）
+- **OpenRouter APIキー**利用可の(有料、モデルは一部無料あり)
+- **Ollamaサーバ**利用可能(対応モデルダウンロード必要)
 
-これらを全て揃えている方は多くないことは理解しています。
+これらを準備できる方は多くないことは理解しています。
 実験的なプロジェクトとして楽しんでいただければ幸いです。
-
----
 
 ## 🚀 セットアップ
 
@@ -64,115 +65,85 @@ MAGINは、各AIが 4つの観点（妥当性・実現可能性・リスク・�
 - **OS**: Ubuntu 24.04 LTS
    - Windows 11(WSL)、MacOSは動作未確認です（動く可能性はあります）
 - **Python**: 3.10以上（開発環境: Python 3.13.5）
-- **ブラウザ**: Chrome, Firefox, Edge (最新版推奨)
+- **ブラウザ**: Chrome, Edge (最新版推奨)
 
 **その他の要件**:
+- Git インストール済み
 - Python 3.10以上
-- Node.js 20以上
 
----
+### ⚡ クイックスタート
 
-### ステップ1: リポジトリのクローン
+#### 前提条件
+- **Git** インストール済み
+- **Python 3.9以上** インストール済み
 
+#### 1. APIキー取得
+1. https://aistudio.google.com/apikey にアクセス
+2. 「Create API Key」をクリック
+3. APIキーをコピー（後で使います）
+
+#### 2. セットアップ
 ```bash
+# リポジトリをクローン
 git clone https://github.com/yo2158/magin.git
 cd magin
-```
 
----
-
-### ステップ2: Python依存パッケージのインストール
-
-```bash
 # 仮想環境作成（推奨）
 python3 -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# 依存パッケージインストール
+# 依存パッケージをインストール
 pip install -r requirements.txt
+
+# サーバー起動
+python -m backend.app
 ```
+
+#### 3. ブラウザでアクセス
+
+http://localhost:8000 を開く
+
+#### 4. APIキー設定
+
+1. 画面右上の 「API SETTING」 をクリック
+2. Gemini API Key に先ほどコピーしたキーを貼り付け
+3. SAVE をクリック
+
+#### 5. 接続テスト
+
+1. 「TEST」 ボタンをクリック
+2. 全て ✅ SUCCESS になることを確認
+
+#### 6. 実行
+
+1. 議題を入力（例: 「リモートワークを全社導入すべきか？」）
+2. 「START JUDGMENT」 をクリック
+3. 3つのAIの判定結果を確認
 
 ---
 
-### ステップ3: AI CLIのインストール
+## 🎭 ペルソナシステム
 
-#### Claude Code
+MAGINでは、各AIに定義済みの複数種類のペルソナから個性を選択できます。
 
-```bash
-# npm経由
-npm install -g @anthropic-ai/claude-code
+### ペルソナの例
 
-# macOS/Linux/WSL
-curl -fsSL https://claude.ai/install.sh | bash
-```
+- **neutral_ai（中立的なAI）**: バランスの取れた視点で客観的に判断
+- **researcher（研究者）**: 論理的・慎重・データ重視
+- **mother（母親）**: 保守的・安全性重視・家族優先
+- **woman（女性）**: バランス重視・共感的
 
-詳細: [Claude Code公式ドキュメント](https://docs.claude.com/en/docs/claude-code/setup)
+...など
 
-#### Gemini CLI
+> ペルソナの種類は [全ペルソナ一覧](docs/personas.md)をご覧ください
 
-```bash
-npm install -g @google/gemini-cli
-```
+### ペルソナの設定方法
 
-詳細: [Gemini CLI GitHub](https://github.com/google-gemini/gemini-cli)
+1. ヘッダーの「CONFIG」ボタンをクリック
+2. 各AIのドロップダウンからペルソナを選択
+3. 「SAVE」で設定を保存（設定はセッション間（ブラウザ閉じるまで）保持されます）
 
-#### Codex CLI
-
-```bash
-npm install -g @openai/codex
-
-# または Homebrew (macOS/Linux)
-brew install codex
-```
-
-詳細: [Codex CLI公式](https://developers.openai.com/codex/cli)
-
----
-
-### ステップ4: AI CLIの認証
-
-各CLIを起動して、ブラウザでログインします。
-
-```bash
-# Claude Code
-claude
-# → ブラウザが開くので、Claudeアカウントでログイン
-
-# Gemini CLI
-gemini
-# → Googleアカウントでログイン
-
-# Codex CLI
-codex
-# → "Sign in with ChatGPT"でログイン
-```
-
----
-
-### ステップ5: アプリケーションの起動
-
-```bash
-python3 -m backend.app
-```
-
-ブラウザで `http://localhost:8000` にアクセスしてください。
-
----
-
-## 💡 使い方
-
-1. **議題を入力**
-   - テキストエリアに意思決定したい内容を入力
-
-2. **「JUDGEMENT START」をクリック**
-   - 3つのAIが並列で判定を開始
-
-3. **結果を確認**
-   - 最終判定結果と各AIの詳細を表示
-   - AIユニットをクリックすると詳細モーダル表示
-
-4. **履歴を確認**
-   - 「HISTORY」ボタンで過去の判定を確認
+ペルソナによって判定結果が大きく変わることがあります。
 
 ---
 
@@ -181,17 +152,25 @@ python3 -m backend.app
 ### AI判定の精度について
 
 - 3つのAIが生成する判定は自動生成されます
-- **必ずしも正確な判断とは限りません**
-- **最終的な意思決定は必ず人間が行ってください**
 - 判定結果はあくまで参考情報としてご利用ください
 
 ### コストについて
 
+- Gemini API: 無償枠はあるものの設定によっては有料となる点に注意
 - Claude Code: Claude Pro/Team/API課金が必要
 - Gemini CLI: 個人Googleアカウントで無料利用可能（1日1000リクエストまで）
 - Codex CLI: ChatGPT Plus以上が必要
+- OpenRouter: 基本有料のクレジット購入でのAPIキー作成が前提
 
 各サービスの利用規約と料金プランは公式サイトでご確認ください。
+
+### APIキーの保存について
+
+**重要: セキュリティに関する注意事項**
+
+MAGINでは、API設定画面から入力されたAPIキーを、ローカル環境の `.env` ファイルに**平文（暗号化されていないテキスト）** で保存します。
+
+**MAGINはローカル環境での個人利用を想定して設計されています。本番環境での使用は推奨しません。**
 
 ### 免責事項
 
@@ -209,16 +188,31 @@ magin/
 │   ├── magi_orchestrator.py  # AI並列実行
 │   ├── severity_judge.py      # 判定ロジック
 │   ├── db_manager.py  # データベース操作
-│   └── config.py      # 設定管理
+│   ├── config.py      # 設定管理
+│   ├── config_manager.py  # 設定マネージャー
+│   ├── ai_factory.py  # 統合AIインターフェース
+│   └── personas.json  # ペルソナ定義
 │
 ├── frontend/          # フロントエンド
 │   ├── index.html     # メインUI
 │   ├── script.js      # JavaScript
 │   ├── style.css      # スタイル
-│   └── favicon.ico    # ファビコン
+│   ├── favicon.ico    # ファビコン
+│   └── sounds/        # サウンドエフェクト
+│       ├── judgement_start.mp3   # 判定開始音
+│       ├── node_verdict.mp3      # AI判定完了音
+│       └── final_verdict.mp3     # 最終判定音
+│
+├── config/            # 設定ファイル
+│   ├── user_config.json.default  # デフォルト設定テンプレート
+│   └── user_config.json  # ユーザー設定（Git管理対象外、初回起動時に自動作成）
+│
+├── data/              # データベース
+│   └── judgments.db   # 判定履歴（SQLite）
 │
 ├── docs/              # ドキュメント
-│   └── judgment-logic.md  # 判定ロジック解説
+│   ├── judgment-logic.md  # 判定ロジック解説
+│   └── personas.md         # ペルソナ一覧
 │
 ├── img/               # 画像
 │   ├── demo.gif
@@ -277,8 +271,41 @@ nvm use 20
 uvicorn backend.app:app --host 0.0.0.0 --port 8001
 ```
 
-### AI CLIが認証できない
+### TESTに失敗する
 
+#### Gemini APIの場合
+
+**よくある原因と対処法**:
+
+1. **APIキーが無効**
+   - Google AI Studio (https://aistudio.google.com/apikey) でAPIキーを確認
+   - APIキーが有効化されているか確認
+   - 新しいAPIキーを作成して再設定
+
+2. **APIキーの入力ミス**
+   - コピー時に余分なスペースが入っていないか確認
+   - APIキー全体が正しくコピーされているか確認（先頭・末尾の切れに注意）
+
+3. **APIの利用制限**
+   - 無料枠を使い切っている可能性があります
+   - Google AI Studio でクォータ（利用制限）を確認
+   - 課金設定を確認（無料枠のみの場合は制限あり）
+
+4. **地域制限**
+   - 一部の国・地域ではGemini APIが利用できません
+   - VPN経由でアクセスしている場合は解除してみてください
+
+5. **ネットワーク接続**
+   - インターネット接続を確認
+   - ファイアウォール設定を確認（`aistudio.google.com`への接続を許可）
+
+**エラーメッセージ別の対処**:
+- `401 Unauthorized`: APIキーが無効 → 再発行して設定し直す
+- `403 Forbidden`: 地域制限またはAPIが無効化されている
+- `429 Too Many Requests`: レート制限（1分待ってから再試行）
+- `500 Internal Server Error`: Google側の一時的な問題（時間を置いて再試行）
+
+#### 各エージェントCLIの場合
 各CLIを単体で起動して、ブラウザログインが完了しているか確認:
 ```bash
 claude  # Claudeログイン確認
@@ -300,6 +327,3 @@ codex   # Codexログイン確認
 [Issues](https://github.com/yo2158/magin/issues) まで
 
 ---
-
-**更新日**: 2025-10-05
-**バージョン**: 1.0.0

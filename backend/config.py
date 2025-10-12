@@ -8,8 +8,8 @@ from typing import List
 
 
 # Timeout settings (seconds)
-SINGLE_AI_TIMEOUT: int = int(os.getenv("SINGLE_AI_TIMEOUT", "60"))
-TOTAL_TIMEOUT: int = int(os.getenv("TOTAL_TIMEOUT", "180"))
+SINGLE_AI_TIMEOUT: int = int(os.getenv("SINGLE_AI_TIMEOUT", "300"))
+TOTAL_TIMEOUT: int = int(os.getenv("TOTAL_TIMEOUT", "600"))
 
 # Database path
 DB_PATH: str = os.getenv("DB_PATH", "data/judgments.db")

@@ -18,32 +18,134 @@ import logging
 import re
 import subprocess
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from backend.config import SINGLE_AI_TIMEOUT
+from backend.config_manager import load_user_config
 from backend.models import AIResponseModel, AIScores
 
 # Configure logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # Enable DEBUG logging for troubleshooting
 
-# AI Configuration (Task 8)
+# ============================================================
+# Backend基盤: Persona & Prompt Template Loading
+# ============================================================
+
+# グローバル変数
+PERSONAS: Dict[str, Any] = {}
+PROMPT_TEMPLATE: str = ""
+
+# デフォルトペルソナID定義
+DEFAULT_PERSONA_IDS = {
+    "ai1": "neutral_ai",
+    "ai2": "neutral_ai",
+    "ai3": "neutral_ai"
+}
+
+# プロンプトテンプレートのパス
+PROMPT_TEMPLATE_PATH = Path(__file__).parent.parent / "trash" / "v1_1" / "prompt_template_v1_1draft.md"
+
+def load_personas() -> Dict[str, Any]:
+    """
+    Load personas from personas.json.
+
+    Returns:
+        Dict containing all personas
+
+    Raises:
+        ValueError: If personas.json is missing or corrupted
+    """
+    personas_path = Path(__file__).parent / "personas.json"
+    try:
+        with open(personas_path, "r", encoding="utf-8") as f:
+            personas = json.load(f)
+        logger.info(f"Loaded {len(personas)} personas from {personas_path}")
+        return personas
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.error(f"Failed to load personas.json: {e}")
+        raise ValueError(f"Persona loading failed: {e}")
+
+def load_prompt_template() -> str:
+    """
+    Load prompt template from prompt_template_v1_1draft.md.
+
+    Returns:
+        Template string
+
+    Raises:
+        FileNotFoundError: If template file is missing
+    """
+    try:
+        template = PROMPT_TEMPLATE_PATH.read_text(encoding="utf-8")
+        logger.info(f"Prompt template loaded: {len(template)} chars")
+        return template
+    except FileNotFoundError:
+        logger.error(f"Prompt template not found: {PROMPT_TEMPLATE_PATH}")
+        raise
+
+# tiktokenの可用性チェック
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
+    logger.warning("tiktoken not available, token validation disabled")
+
+def validate_prompt_tokens(prompt: str, max_tokens: int = 3000) -> bool:
+    """
+    Validate prompt token count using tiktoken.
+
+    Args:
+        prompt: Prompt string to validate
+        max_tokens: Maximum allowed tokens (default: 2000)
+
+    Returns:
+        True if validation passed or tiktoken unavailable
+        False if token count exceeds max_tokens
+
+    Example:
+        >>> validate_prompt_tokens("短いプロンプト")
+        True
+    """
+    if not TIKTOKEN_AVAILABLE:
+        logger.warning("Token validation skipped (tiktoken not installed)")
+        return True
+    try:
+        encoder = tiktoken.encoding_for_model("gpt-3.5-turbo")
+        token_count = len(encoder.encode(prompt))
+        if token_count > max_tokens:
+            logger.error(f"Prompt exceeds {max_tokens} tokens: {token_count}")
+            return False
+        logger.debug(f"Prompt token count: {token_count}/{max_tokens}")
+        return True
+    except Exception as e:
+        logger.warning(f"Token validation failed: {e}")
+        return True
+
+# 起動時に読み込み
+PERSONAS = load_personas()
+PROMPT_TEMPLATE = load_prompt_template()
+
+# AI Configuration (Task 8, modified by Task 3)
 AI_CONFIGS = [
     {
         "name": "Claude",
         "command": ["claude"],
-        "role": "balanced",
+        "persona_id": "researcher",
         "display_name": "Claude"
     },
     {
         "name": "Gemini",
         "command": ["gemini"],
-        "role": "logical",
+        "persona_id": "mother",
         "display_name": "Gemini"
     },
     {
         "name": "ChatGPT",
         "command": ["codex", "exec", "--skip-git-repo-check"],
-        "role": "technical",
+        "persona_id": "woman",
         "display_name": "ChatGPT"
     }
 ]
@@ -52,6 +154,72 @@ AI_CONFIGS = [
 # ============================================================
 # Task 9: JSON Extraction Utilities
 # ============================================================
+
+def find_nth_json_object(text: str, n: int = 1) -> Optional[Dict[str, Any]]:
+    """
+    Find the Nth JSON object in text (useful for skipping persona JSON).
+
+    Args:
+        text: Text containing JSON objects
+        n: Which JSON object to return (1-indexed, default=1 for first)
+
+    Returns:
+        The Nth JSON object, or None if not found
+    """
+    if not text or n < 1:
+        return None
+
+    found_count = 0
+    start_idx = 0
+
+    while start_idx < len(text):
+        # Find next '{'
+        start_idx = text.find('{', start_idx)
+        if start_idx == -1:
+            break
+
+        # Try to parse JSON from this position
+        brace_count = 0
+        in_string = False
+        escape_next = False
+
+        for i in range(start_idx, len(text)):
+            char = text[i]
+
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\':
+                escape_next = True
+                continue
+
+            if char == '"':
+                in_string = not in_string
+                continue
+
+            if not in_string:
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+
+                    if brace_count == 0:
+                        json_str = text[start_idx:i+1]
+                        try:
+                            json_obj = json.loads(json_str)
+                            found_count += 1
+                            if found_count == n:
+                                return json_obj
+                        except json.JSONDecodeError:
+                            pass
+                        # Move to next potential JSON
+                        start_idx = i + 1
+                        break
+        else:
+            # Didn't find matching brace, move forward
+            start_idx += 1
+
+    return None
 
 def extract_json_from_markdown(text: str) -> Optional[Dict[str, Any]]:
     """
@@ -75,7 +243,11 @@ def extract_json_from_markdown(text: str) -> Optional[Dict[str, Any]]:
     if not text:
         return None
 
-    # Try ```json ... ```
+    # Pre-process: Fix common JSON formatting errors
+    # Fix missing quotes before field names (e.g., hard_flag" -> "hard_flag")
+    text = re.sub(r'(\n\s*)([a-zA-Z_][a-zA-Z0-9_]*)":', r'\1"\2":', text)
+
+    # Try ```json ... ``` blocks
     match = re.search(r'```json\s*\n(.*?)\n```', text, re.DOTALL)
     if match:
         try:
@@ -83,7 +255,7 @@ def extract_json_from_markdown(text: str) -> Optional[Dict[str, Any]]:
         except json.JSONDecodeError as e:
             logger.warning(f"JSON decode error in ```json block: {e}")
 
-    # Try ``` ... ```
+    # Try ``` ... ``` blocks
     match = re.search(r'```\s*\n(.*?)\n```', text, re.DOTALL)
     if match:
         try:
@@ -91,39 +263,95 @@ def extract_json_from_markdown(text: str) -> Optional[Dict[str, Any]]:
         except json.JSONDecodeError as e:
             logger.warning(f"JSON decode error in ``` block: {e}")
 
-    # Try raw JSON { ... }
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError as e:
-            logger.warning(f"JSON decode error in raw JSON: {e}")
+    # Try raw JSON { ... } with balanced braces
+    search_start = 0
+
+    while search_start < len(text):
+        start_idx = text.find('{', search_start)
+        if start_idx == -1:
+            break
+        # Try to find a valid JSON object by iteratively extending the slice
+        brace_count = 0
+        in_string = False
+        escape_next = False
+
+        for i in range(start_idx, len(text)):
+            char = text[i]
+
+            # Handle string escaping
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\':
+                escape_next = True
+                continue
+
+            # Track if we're inside a string
+            if char == '"':
+                in_string = not in_string
+                continue
+
+            # Only count braces outside strings
+            if not in_string:
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+
+                    # Found matching closing brace
+                    if brace_count == 0:
+                        json_str = text[start_idx:i+1]
+                        try:
+                            parsed = json.loads(json_str)
+                            return parsed
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"JSON decode error in raw JSON: {e}")
+                            # Continue searching for next JSON object
+                            search_start = i + 1
+                            break
+        else:
+            # Inner loop completed without break - no valid JSON found from this position
+            search_start = start_idx + 1
 
     return None
 
 
 def extract_codex_response(output: str) -> str:
     """
-    Remove Codex CLI timestamp logs from output.
+    Remove Codex CLI metadata from output.
 
-    Example:
-        "[2025-10-04T12:34:56] codex\\nsome output" → "some output"
+    Handles Codex v0.44.0 format where output contains:
+    1. Metadata headers
+    2. User prompt (with persona JSON)
+    3. "codex\\n" marker
+    4. Response JSON
+    5. "\\ntokens used" marker
+
+    Strategy: Extract content between "codex\\n" and "tokens used",
+    then find the FIRST valid JSON (which is the response, not persona)
 
     Args:
         output: Raw Codex CLI output
 
     Returns:
-        Cleaned output without timestamp logs
+        Cleaned output without metadata (just the response JSON)
     """
-    match = re.search(
-        r'\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\] codex\s*\n(.*?)(?:\[\d{4}-\d{2}-\d{2}T|$)',
-        output,
-        re.DOTALL
-    )
+    # Extract content between "codex\n" and "tokens used"
+    codex_match = re.search(r'\bcodex\s*\n(.*?)\ntokens used', output, re.DOTALL)
+    if codex_match:
+        extracted = codex_match.group(1).strip()
+        logger.debug(f"Extracted codex section ({len(extracted)} chars)")
+        return extracted
 
-    if match:
-        return match.group(1).strip()
+    # Fallback: try simple "codex\n" pattern
+    codex_simple = re.search(r'\bcodex\s*\n(.*)', output, re.DOTALL)
+    if codex_simple:
+        extracted = codex_simple.group(1).strip()
+        logger.debug(f"Extracted using simple codex pattern ({len(extracted)} chars)")
+        return extracted
 
+    # If no pattern matched, return as-is
+    logger.warning(f"No extraction pattern matched, returning raw output")
     return output.strip()
 
 
@@ -213,102 +441,59 @@ def validate_ai_response(response: Dict) -> Tuple[bool, Optional[str], Optional[
 
 
 # ============================================================
-# Task 11: AI Prompt Generation (NEW SPEC)
+# Task 11: AI Prompt Generation (PERSONA-DRIVEN)
 # ============================================================
 
-def create_ai_prompt(issue: str, ai_role: str) -> str:
+def create_ai_prompt(issue: str, persona_id: str) -> str:
     """
-    Generate AI prompt with NEW SPECIFICATION features.
+    ペルソナJSONを埋め込んだプロンプトを生成
 
-    Includes:
-    - 4-aspect evaluation criteria (validity, feasibility, risk, certainty)
-    - Risk floor constraint (risk < 0.6 prevents approval)
-    - Hard flag setting criteria (compliance/security/privacy)
-    - Constraint priorities (hard_flag must have evidence, risk floor, 0.9 boundary strict)
+    旧実装を完全削除し、新規実装に置き換え
+    旧: create_ai_prompt(issue, ai_role)  # ai_role = "balanced"/"logical"/"technical"
+    新: create_ai_prompt(issue, persona_id)  # persona_id = "researcher"/"mother"等
+
+    処理:
+    1. PERSONAS[persona_id] を取得
+    2. PROMPT_TEMPLATE の {{PERSONA_JSON}} に埋め込み
+    3. {issue} を置換
+    4. トークン数検証（上限2000トークン）
 
     Args:
-        issue: Issue text to judge
-        ai_role: balanced/logical/technical
+        issue: 議題
+        persona_id: ペルソナID（例: "researcher"）
 
     Returns:
-        Formatted prompt string
+        str: 完成したプロンプト
+
+    Raises:
+        ValueError: トークン数超過の場合
 
     Example:
-        >>> prompt = create_ai_prompt("新機能を実装すべきか？", "balanced")
-        >>> "4観点評価" in prompt
+        >>> prompt = create_ai_prompt("ランチにカレーを食べる", "researcher")
+        >>> "研究者" in prompt
         True
     """
-    role_descriptions = {
-        "balanced": "あなたはバランス重視の視点で判断してください。賛成・反対双方の意見を公平に考慮します。",
-        "logical": "あなたは論理的妥当性重視の視点で判断してください。理論的整合性と倫理を最優先します。",
-        "technical": "あなたは実現可能性重視の視点で判断してください。技術的・経済的な実装面を重視します。"
-    }
+    # 1. ペルソナ取得
+    persona_data = PERSONAS.get(persona_id)
+    if not persona_data:
+        logger.error(f"Invalid persona_id: {persona_id}")
+        # デフォルトペルソナにフォールバック
+        persona_id = DEFAULT_PERSONA_IDS["ai1"]
+        persona_data = PERSONAS[persona_id]
+        logger.warning(f"Using default persona: {persona_id}")
 
-    return f"""
-{role_descriptions.get(ai_role, "")}
+    # 2. ペルソナJSONを文字列化
+    persona_json_str = json.dumps(persona_data, ensure_ascii=False, indent=2)
 
-議題: {issue}
+    # 3. プロンプトテンプレートに埋め込み
+    prompt = PROMPT_TEMPLATE.replace("{{PERSONA_JSON}}", persona_json_str)
+    prompt = prompt.replace("{issue}", issue)
 
-【重要】もし議題が意思決定に関するものでない場合（例: 天気予報、挨拶、一般質問、雑談等）、
-以下のフォーマットで回答してください:
-{{
-  "scores": {{"validity": 0.0, "feasibility": 0.0, "risk": 0.0, "certainty": 0.0}},
-  "average_score": 0.0,
-  "decision": "NOT_APPLICABLE",
-  "severity": 0,
-  "reason": "この質問は意思決定事項ではありません",
-  "concerns": [],
-  "hard_flag": "none"
-}}
+    # 4. トークン数検証
+    if not validate_prompt_tokens(prompt):
+        raise ValueError(f"Prompt exceeds 3000 tokens for persona: {persona_id}")
 
-意思決定に関する議題の場合のみ、以下の4観点で評価し、JSON形式で返してください。他の説明は一切不要です。
-
-**4観点評価基準（各0.0-1.0）**:
-1. **validity（妥当性）**: 提案が目的に合致しているか（1.0=完全合致、0.0=無関係）
-2. **feasibility（実現可能性）**: リソースや条件が整っているか（1.0=実現容易、0.0=不可能）
-3. **risk（リスク）**: 安全性・倫理・コストリスク（1.0=リスク極小、0.0=致命的リスク）
-4. **certainty（確実性）**: 根拠や前提の明確さ（1.0=確実、0.0=不確実）
-
-**重大度ガイドライン（0-100）**:
-- 0-20: 個人レベル（個人の習慣・趣味）
-- 21-40: 組織レベル（チーム・部署の判断）
-- 41-60: 事業レベル（企業戦略・投資判断）
-- 61-80: 社会レベル（法律・政策・大規模影響）
-- 81-100: 存続レベル（生命・存続・倫理の根幹）
-
-**判定ルール**:
-- 平均スコア >= 0.9: 承認
-- 平均スコア 0.7-0.9: 部分的承認
-- 平均スコア < 0.7: 否決
-- **リスク下限制約**: risk < 0.6 の場合、承認不可（最高でも部分的承認）
-
-**ハードフラグ設定基準**:
-- **compliance**: 法令・規制違反の可能性がある場合
-- **security**: セキュリティリスク・情報漏洩の懸念がある場合
-- **privacy**: プライバシー侵害の懸念がある場合
-- **none**: 上記のいずれにも該当しない場合（デフォルト）
-
-**制約の優先順位**:
-1. ハードフラグは根拠必須（具体的な懸念がない場合は"none"）
-2. risk < 0.6 の場合は承認不可
-3. 0.9境界を厳守（0.89は部分的承認、0.90は承認）
-
-**出力形式（JSON）**:
-{{
-  "scores": {{
-    "validity": 0.0-1.0,
-    "feasibility": 0.0-1.0,
-    "risk": 0.0-1.0,
-    "certainty": 0.0-1.0
-  }},
-  "average_score": 0.0-1.0,
-  "decision": "承認" | "部分的承認" | "否決",
-  "severity": 0-100,
-  "reason": "判断理由（100文字程度）",
-  "concerns": ["懸念点1", "懸念点2"],
-  "hard_flag": "none" | "compliance" | "security" | "privacy"
-}}
-"""
+    return prompt
 
 
 # ============================================================
@@ -377,14 +562,90 @@ async def call_ai_async(
         else:
             clean_output = stdout_text
 
+        # Debug: Log for ChatGPT BEFORE JSON extraction
+        if 'chatgpt' in ai_name.lower():
+            logger.debug(f"ChatGPT stdout length: {len(stdout_text)} chars")
+            logger.debug(f"ChatGPT stdout (first 500 chars): {stdout_text[:500]}")
+            logger.debug(f"ChatGPT clean_output length: {len(clean_output)} chars")
+            logger.debug(f"ChatGPT clean_output (first 1000 chars): {clean_output[:1000]}")
+
+            # Find ALL JSON objects in clean_output
+            all_jsons = []
+            pos = 0
+            while pos < len(clean_output):
+                brace_idx = clean_output.find('{', pos)
+                if brace_idx == -1:
+                    break
+                try:
+                    # Try to parse JSON from this position
+                    for end_pos in range(brace_idx + 1, len(clean_output) + 1):
+                        try:
+                            parsed = json.loads(clean_output[brace_idx:end_pos])
+                            all_jsons.append({
+                                'start': brace_idx,
+                                'end': end_pos,
+                                'preview': str(parsed)[:200]
+                            })
+                            pos = end_pos
+                            break
+                        except json.JSONDecodeError:
+                            continue
+                    else:
+                        pos = brace_idx + 1
+                except Exception:
+                    pos = brace_idx + 1
+
+            logger.debug(f"ChatGPT found {len(all_jsons)} JSON objects in clean_output:")
+            for idx, j in enumerate(all_jsons, 1):
+                logger.debug(f"  JSON #{idx} at pos {j['start']}-{j['end']}: {j['preview']}")
+
         # Extract JSON
-        json_data = extract_json_from_markdown(clean_output)
+        # For Codex/ChatGPT: Find all valid JSON objects and take the LAST one
+        if 'codex' in ai_name.lower() or 'chatgpt' in ai_name.lower():
+            all_jsons = []
+            search_pos = 0
+
+            while search_pos < len(clean_output):
+                # Find next '{' starting position
+                brace_pos = clean_output.find('{', search_pos)
+                if brace_pos == -1:
+                    break
+
+                # Try to extract JSON from this position
+                test_json = extract_json_from_markdown(clean_output[brace_pos:])
+                if test_json:
+                    # Filter out incomplete JSON (must have 'scores' field for valid responses)
+                    # Skip persona JSON (has 'persona_name') and NOT_APPLICABLE template (has decision='NOT_APPLICABLE')
+                    is_persona = 'persona_name' in test_json
+                    is_not_applicable = test_json.get('decision') == 'NOT_APPLICABLE'
+                    is_incomplete = 'scores' not in test_json and 'validity' in test_json  # Incomplete JSON with bare scores
+
+                    if not is_persona and not is_not_applicable and not is_incomplete:
+                        all_jsons.append(test_json)
+
+                    # Convert back to JSON string to find its actual end position
+                    json_str = json.dumps(test_json, ensure_ascii=False)
+                    # Search for the end of this JSON object (with balanced braces)
+                    # Move past the opening brace
+                    search_pos = brace_pos + len(json_str)
+                else:
+                    # No valid JSON found, move past this brace
+                    search_pos = brace_pos + 1
+
+            # Take the LAST JSON (after filtering)
+            json_data = all_jsons[-1] if all_jsons else None
+            if 'chatgpt' in ai_name.lower():
+                logger.debug(f"ChatGPT found {len(all_jsons)} valid JSON objects (after filtering), using last one")
+                logger.debug(f"ChatGPT extracted JSON: {json_data}")
+        else:
+            json_data = extract_json_from_markdown(clean_output)
 
         # Validate response
         if json_data:
             is_valid, error_msg, sanitized = validate_ai_response(json_data)
             if not is_valid:
                 logger.error(f"{ai_name} validation failed: {error_msg}")
+                logger.error(f"{ai_name} extracted JSON was: {json_data}")
                 return {
                     "ai": ai_name,
                     "success": False,
@@ -435,41 +696,99 @@ async def call_ai_async(
 # Tasks 12-13: Parallel AI Execution with Timeout Handling
 # ============================================================
 
-async def run_parallel_judgment(issue: str, on_ai_complete: Optional[Callable[[str, Dict[str, Any]], None]] = None) -> List[Dict[str, Any]]:
+async def run_parallel_judgment(
+    issue: str,
+    persona_ids: Optional[List[str]] = None,
+    on_ai_complete: Optional[Callable[[str, Dict[str, Any]], None]] = None
+) -> List[Dict[str, Any]]:
     """
     Execute all 3 AIs in parallel with timeout handling.
 
+    Modified in Task 3 to support persona_ids parameter.
+    Modified in Phase 2 Task 2.1.1 to support user_config.json NODE settings.
+
     Args:
         issue: Issue text to judge
+        persona_ids: List of persona IDs for each AI (optional, defaults to AI_CONFIGS persona_ids or user_config.json)
         on_ai_complete: Optional callback function called when each AI completes.
                        Signature: (ai_name: str, result: Dict[str, Any]) -> None
 
     Returns:
         List of AI responses (success or failure)
 
+    Raises:
+        ValueError: If fewer than 2 AIs respond successfully
+
     Example:
         >>> responses = await run_parallel_judgment("新機能を実装すべきか？")
         >>> len(responses)
         3
+        >>> responses = await run_parallel_judgment("カレー", ["neutral_ai", "neutral_ai", "neutral_ai"])
         >>> all("ai" in r for r in responses)
         True
     """
     logger.info(f"Starting parallel judgment for issue: {issue[:50]}...")
 
+    # Load user configuration (NODE settings)
+    config = load_user_config()
+    nodes = config.get("nodes", [])
+
+    # Validate we have exactly 3 nodes
+    if len(nodes) != 3:
+        logger.warning(f"Expected 3 nodes in config, got {len(nodes)}. Using default AI_CONFIGS.")
+        nodes = []  # Fall back to AI_CONFIGS
+
+    # Use default persona_ids from AI_CONFIGS if not provided
+    if persona_ids is None:
+        if nodes:
+            # Use persona_ids from user_config.json
+            persona_ids = [node.get("persona_id", "researcher") for node in nodes]
+        else:
+            # Use persona_ids from AI_CONFIGS
+            persona_ids = [config["persona_id"] for config in AI_CONFIGS]
+
     # Create tasks for parallel execution
-    async def execute_with_callback(config):
-        result = await call_ai_async(
-            config["name"],
-            config["command"],
-            create_ai_prompt(issue, config["role"]),
-            timeout=SINGLE_AI_TIMEOUT
-        )
+    async def execute_with_callback(config_or_node, persona_id, index):
+        # Import call_ai here to avoid circular import
+        from backend.ai_factory import call_ai
+
+        # If using user_config.json nodes
+        if nodes and index < len(nodes):
+            node = nodes[index]
+            engine = node.get("engine", "Claude")
+            model = node.get("model")
+            ai_name = node.get("name", f"AI {index + 1}")
+
+            # Call new ai_factory.call_ai() function
+            result = await call_ai(
+                engine,
+                model,
+                create_ai_prompt(issue, persona_id),
+                timeout=SINGLE_AI_TIMEOUT
+            )
+            # Add ai_name, engine, and model to result
+            result["ai"] = ai_name
+            result["engine"] = engine
+            result["model"] = model or "default"
+        else:
+            # Fall back to old AI_CONFIGS (MCP CLI only)
+            result = await call_ai_async(
+                config_or_node["name"],
+                config_or_node["command"],
+                create_ai_prompt(issue, persona_id),
+                timeout=SINGLE_AI_TIMEOUT
+            )
+
         # Call callback if provided
         if on_ai_complete:
-            on_ai_complete(config["name"], result)
+            on_ai_complete(result["ai"], result)
         return result
 
-    tasks = [execute_with_callback(config) for config in AI_CONFIGS]
+    # Build task list
+    if nodes:
+        tasks = [execute_with_callback(nodes[i], persona_ids[i], i) for i in range(3)]
+    else:
+        tasks = [execute_with_callback(AI_CONFIGS[i], persona_ids[i], i) for i in range(len(AI_CONFIGS))]
 
     # Execute in parallel with exception handling
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -478,9 +797,10 @@ async def run_parallel_judgment(issue: str, on_ai_complete: Optional[Callable[[s
     processed_results = []
     for i, result in enumerate(results):
         if isinstance(result, Exception):
-            logger.error(f"AI {AI_CONFIGS[i]['name']} raised exception: {result}")
+            ai_name = nodes[i]["name"] if nodes else AI_CONFIGS[i]["name"]
+            logger.error(f"AI {ai_name} raised exception: {result}")
             error_result = {
-                "ai": AI_CONFIGS[i]["name"],
+                "ai": ai_name,
                 "success": False,
                 "response": None,
                 "raw_output": None,
@@ -490,13 +810,17 @@ async def run_parallel_judgment(issue: str, on_ai_complete: Optional[Callable[[s
             processed_results.append(error_result)
             # Call callback for error case too
             if on_ai_complete:
-                on_ai_complete(AI_CONFIGS[i]["name"], error_result)
+                on_ai_complete(ai_name, error_result)
         else:
             processed_results.append(result)
 
     # Log summary
     successful_count = sum(1 for r in processed_results if r["success"])
     logger.info(f"Parallel judgment completed: {successful_count}/3 successful")
+
+    # Task 2.1.2: Check minimum 2 AIs responded successfully
+    if successful_count < 2:
+        raise ValueError("At least 2 AIs must respond")
 
     return processed_results
 

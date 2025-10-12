@@ -12,7 +12,7 @@ New Specification Features:
 """
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -166,6 +166,9 @@ class JudgmentRequest(BaseModel):
     simple_mode: bool = Field(
         default=False, description="Simple mode flag (no animations, plain text output)"
     )
+    persona_ids: Optional[List[str]] = Field(
+        default=None, description="Persona IDs for AI responses (e.g., ['neutral_ai', 'neutral_ai', 'neutral_ai'])"
+    )
 
     @field_validator("issue")
     @classmethod
@@ -239,6 +242,9 @@ class JudgmentModel(BaseModel):
     severity_level: Optional[str] = Field(
         default=None, description="Severity classification: HIGH | MID | LOW"
     )
+    total_score: Optional[float] = Field(
+        default=None, ge=0.0, le=3.0, description="Total decision score (0.0-3.0)"
+    )
     claude: Optional[AIResponseModel] = Field(
         default=None, description="Claude AI response (None if failed)"
     )
@@ -260,6 +266,10 @@ class JudgmentModel(BaseModel):
     plain_text_output: Optional[str] = Field(
         default=None,
         description="Plain text output for simple mode (New Specification)",
+    )
+    persona_names: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Persona names for AI responses (e.g., {'claude': '研究者', 'gemini': '母', 'chatgpt': '女性'})"
     )
 
     @field_validator("result")

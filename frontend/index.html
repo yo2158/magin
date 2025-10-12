@@ -11,14 +11,29 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+    <!-- Hexagon Background (v1.1) -->
+    <div class="hexagon-bg" id="hexagonBg"></div>
+
+    <!-- Linking Circle Effect (v1.1) -->
+    <svg id="linking-circle">
+        <circle cx="200" cy="200" r="200"></circle>
+    </svg>
+
     <!-- ヘッダー -->
     <div class="header">
-        <h1>MAGIN System v1.0b</h1>
+        <h1>MAGIN System v1.4</h1>
         <p>Multi-AI Governance Interface Node</p>
-        <div class="mode-toggle">
-            <span class="mode-label mode-label-full" style="font-size: 12px;">FULL MODE</span>
-            <div class="toggle-switch" id="modeToggle"></div>
-            <span class="mode-label mode-label-simple" style="font-size: 12px;">SIMPLE</span>
+        <div class="header-controls">
+            <div class="mode-toggle">
+                <span class="mode-label mode-label-se-off" style="font-size: 12px;">SE OFF</span>
+                <div class="toggle-switch" id="seToggle"></div>
+                <span class="mode-label mode-label-se-on" style="font-size: 12px;">SE ON</span>
+            </div>
+            <div class="mode-toggle">
+                <span class="mode-label mode-label-simple" style="font-size: 12px;">SIMPLE</span>
+                <div class="toggle-switch" id="modeToggle"></div>
+                <span class="mode-label mode-label-full" style="font-size: 12px;">FULL MODE</span>
+            </div>
         </div>
     </div>
 
@@ -27,12 +42,15 @@
         <div class="input-section">
             <label for="agenda-input">
                 PROPOSITION INPUT_
-                <span class="tooltip-icon" title="入力文字数: 1-2000文字">?</span>
+                <span class="tooltip-icon" title="入力文字数: 1-2000文字&#10;&#10;承認か否決で答えられる質問を入力してください。&#10;「～すべきか」「～したい」といった形式が推奨です。&#10;&#10;「どうすればよいか？」といった回答選択肢が多岐にわたる、&#10;または自由回答となるものは答えられません。">?</span>
             </label>
-            <textarea id="agenda-input" placeholder="意思決定したい内容を入力してください...&#10;例: 週休3日制を法律で義務化すべきか"></textarea>
+            <textarea id="agenda-input" placeholder="Enter your proposition for deliberation..."></textarea>
             <div class="button-group">
                 <button class="btn" id="startBtn">JUDGEMENT START</button>
                 <button class="btn btn-secondary" id="historyBtn">HISTORY</button>
+                <button class="btn btn-secondary" id="configBtn">CONFIG</button>
+                <button class="btn btn-secondary" id="apiSettingBtn">API SETTING</button>
+                <button class="btn btn-secondary" id="testBtn">TEST</button>
             </div>
         </div>
 
@@ -73,18 +91,21 @@
             <!-- Gemini (Top) -->
             <div class="ai-unit" id="gemini" data-ai="gemini">
                 <div class="ai-unit-name">GEMINI</div>
+                <div class="ai-unit-model" id="model-gemini"></div>
                 <div class="ai-unit-status" id="status-gemini">IDLE</div>
             </div>
 
             <!-- Claude (Bottom Left) -->
             <div class="ai-unit" id="claude" data-ai="claude">
                 <div class="ai-unit-name">CLAUDE</div>
+                <div class="ai-unit-model" id="model-claude"></div>
                 <div class="ai-unit-status" id="status-claude">IDLE</div>
             </div>
 
             <!-- ChatGPT (Bottom Right) -->
             <div class="ai-unit" id="chatgpt" data-ai="chatgpt">
                 <div class="ai-unit-name">CHATGPT</div>
+                <div class="ai-unit-model" id="model-chatgpt"></div>
                 <div class="ai-unit-status" id="status-chatgpt">IDLE</div>
             </div>
 
@@ -96,20 +117,25 @@
 
         <!-- サマリレポート -->
         <div class="summary-report" id="summaryReport">
-            <div class="summary-header">FINAL VERDICT SUMMARY</div>
-            <div class="summary-grid">
-                <div class="summary-item">
+            <div class="summary-header">
+                FINAL VERDICT SUMMARY
+                <button class="copy-btn" id="copySummaryBtn" title="Copy summary">
+                    COPY
+                </button>
+            </div>
+            <div class="summary-grid-inline">
+                <div class="summary-item-inline">
                     <div class="summary-label">DECISION</div>
                     <div class="summary-value" id="summaryDecision">---</div>
                 </div>
-                <div class="summary-item">
+                <div class="summary-item-inline">
+                    <div class="summary-label">CONSENSUS SCORE</div>
+                    <div class="summary-value" id="summaryConditional">---</div>
+                </div>
+                <div class="summary-item-inline">
                     <div class="summary-label">SEVERITY</div>
                     <div class="summary-value" id="summarySeverity">---</div>
                 </div>
-            </div>
-            <div class="summary-reasoning">
-                <div class="summary-label">REASONING</div>
-                <div class="summary-text" id="summaryReasoning">---</div>
             </div>
             <div class="summary-hard-flag" id="summaryHardFlagSection" style="display: none;">
                 <div class="summary-label">⚠️ HARD FLAG DETECTED</div>
@@ -117,17 +143,32 @@
             </div>
             <div class="ai-decisions-compact">
                 <div class="summary-label">AI DECISIONS & REASONING</div>
-                <div class="ai-decision-compact" id="summaryClaudeDecision">
-                    <span class="ai-name-compact">Claude:</span>
-                    <span class="decision-compact">---</span> - <span class="reasoning-compact">---</span>
+                <!-- NODE 1 (mapped to gemini) -->
+                <div class="ai-decision-row" id="summaryGeminiDecision">
+                    <div class="ai-decision-badge" id="summaryGeminiDecisionBadge">---</div>
+                    <div class="ai-header">
+                        <span class="ai-model">---</span>
+                        <span class="ai-persona" id="summaryGeminiPersona">---</span>
+                    </div>
+                    <div class="ai-reasoning" id="summaryGeminiReasoning">---</div>
                 </div>
-                <div class="ai-decision-compact" id="summaryGeminiDecision">
-                    <span class="ai-name-compact">Gemini:</span>
-                    <span class="decision-compact">---</span> - <span class="reasoning-compact">---</span>
+                <!-- NODE 2 (mapped to claude) -->
+                <div class="ai-decision-row" id="summaryClaudeDecision">
+                    <div class="ai-decision-badge" id="summaryClaudeDecisionBadge">---</div>
+                    <div class="ai-header">
+                        <span class="ai-model">---</span>
+                        <span class="ai-persona" id="summaryClaudePersona">---</span>
+                    </div>
+                    <div class="ai-reasoning" id="summaryClaudeReasoning">---</div>
                 </div>
-                <div class="ai-decision-compact" id="summaryChatGPTDecision">
-                    <span class="ai-name-compact">ChatGPT:</span>
-                    <span class="decision-compact">---</span> - <span class="reasoning-compact">---</span>
+                <!-- NODE 3 (mapped to chatgpt) -->
+                <div class="ai-decision-row" id="summaryChatGPTDecision">
+                    <div class="ai-decision-badge" id="summaryChatGPTDecisionBadge">---</div>
+                    <div class="ai-header">
+                        <span class="ai-model">---</span>
+                        <span class="ai-persona" id="summaryChatGPTPersona">---</span>
+                    </div>
+                    <div class="ai-reasoning" id="summaryChatGPTReasoning">---</div>
                 </div>
             </div>
         </div>
@@ -141,6 +182,8 @@
         <div class="modal-content">
             <button class="modal-close" id="closeAIModal">×</button>
             <h2 id="aiModalTitle">AI DETAIL</h2>
+            <div id="aiModalPersona" style="font-size: 0.85em; color: #888; margin-top: -10px; margin-bottom: 15px;"></div>
+            <div id="aiModalEngineModel" style="font-size: 0.85em; color: #888; margin-top: -10px; margin-bottom: 15px;"></div>
 
             <!-- 4-Aspect Scores Display -->
             <div class="detail-section">
@@ -210,22 +253,34 @@
 
             <!-- AI判断結果サマリ -->
             <div class="detail-section">
-                <div class="detail-label">AI DECISIONS</div>
+                <div class="detail-label">AI DECISIONS & REASONING</div>
                 <div class="ai-decisions-summary">
+                    <!-- NODE 1 (mapped to gemini) -->
                     <div class="ai-decision-row">
-                        <span class="ai-name">Claude:</span>
-                        <span class="decision-text" id="detailClaudeDecision">---</span>
-                        <span class="reasoning-text" id="detailClaudeReasoning">---</span>
+                        <div class="ai-decision-badge" id="detailGeminiDecisionBadge">---</div>
+                        <div class="ai-header">
+                            <span class="ai-model">---</span>
+                            <span class="ai-persona" id="detailGeminiPersona"></span>
+                        </div>
+                        <div class="ai-reasoning" id="detailGeminiReasoning">---</div>
                     </div>
+                    <!-- NODE 2 (mapped to claude) -->
                     <div class="ai-decision-row">
-                        <span class="ai-name">Gemini:</span>
-                        <span class="decision-text" id="detailGeminiDecision">---</span>
-                        <span class="reasoning-text" id="detailGeminiReasoning">---</span>
+                        <div class="ai-decision-badge" id="detailClaudeDecisionBadge">---</div>
+                        <div class="ai-header">
+                            <span class="ai-model">---</span>
+                            <span class="ai-persona" id="detailClaudePersona"></span>
+                        </div>
+                        <div class="ai-reasoning" id="detailClaudeReasoning">---</div>
                     </div>
+                    <!-- NODE 3 (mapped to chatgpt) -->
                     <div class="ai-decision-row">
-                        <span class="ai-name">ChatGPT:</span>
-                        <span class="decision-text" id="detailChatGPTDecision">---</span>
-                        <span class="reasoning-text" id="detailChatGPTReasoning">---</span>
+                        <div class="ai-decision-badge" id="detailChatGPTDecisionBadge">---</div>
+                        <div class="ai-header">
+                            <span class="ai-model">---</span>
+                            <span class="ai-persona" id="detailChatGPTPersona"></span>
+                        </div>
+                        <div class="ai-reasoning" id="detailChatGPTReasoning">---</div>
                     </div>
                 </div>
             </div>
@@ -259,6 +314,74 @@
                     </tr>
                 </tbody>
             </table>
+        </div>
+    </div>
+
+    <!-- 設定モーダル (v1.2) -->
+    <div class="modal" id="configModal">
+        <div class="modal-content" style="max-width: 700px;">
+            <button class="modal-close" id="closeConfigModal">×</button>
+            <h2>AI PERSONA CONFIGURATION</h2>
+
+            <!-- 説明 -->
+            <div class="detail-section">
+                <div class="detail-label">DESCRIPTION</div>
+                <div class="detail-value" style="font-size: 13px; color: #ccc;">
+                    各AIに割り当てるペルソナを選択してください。
+                </div>
+            </div>
+
+            <!-- AI Persona Selects (Custom Select2-style) -->
+            <div class="detail-section">
+                <div class="detail-label">CLAUDE PERSONA</div>
+                <div class="custom-select-wrapper" data-select-id="persona1">
+                    <div class="custom-select-trigger">
+                        <span class="custom-select-value">Loading...</span>
+                        <span class="custom-select-arrow">▼</span>
+                    </div>
+                    <div class="custom-select-dropdown">
+                        <input type="text" class="custom-select-search" placeholder="Search persona...">
+                        <div class="custom-select-options"></div>
+                    </div>
+                    <input type="hidden" id="persona1" value="">
+                </div>
+            </div>
+
+            <div class="detail-section">
+                <div class="detail-label">GEMINI PERSONA</div>
+                <div class="custom-select-wrapper" data-select-id="persona2">
+                    <div class="custom-select-trigger">
+                        <span class="custom-select-value">Loading...</span>
+                        <span class="custom-select-arrow">▼</span>
+                    </div>
+                    <div class="custom-select-dropdown">
+                        <input type="text" class="custom-select-search" placeholder="Search persona...">
+                        <div class="custom-select-options"></div>
+                    </div>
+                    <input type="hidden" id="persona2" value="">
+                </div>
+            </div>
+
+            <div class="detail-section">
+                <div class="detail-label">CHATGPT PERSONA</div>
+                <div class="custom-select-wrapper" data-select-id="persona3">
+                    <div class="custom-select-trigger">
+                        <span class="custom-select-value">Loading...</span>
+                        <span class="custom-select-arrow">▼</span>
+                    </div>
+                    <div class="custom-select-dropdown">
+                        <input type="text" class="custom-select-search" placeholder="Search persona...">
+                        <div class="custom-select-options"></div>
+                    </div>
+                    <input type="hidden" id="persona3" value="">
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="config-buttons">
+                <button class="btn" id="saveConfigBtn">確定</button>
+                <button class="btn btn-secondary" id="resetConfigBtn">デフォルトに戻す</button>
+            </div>
         </div>
     </div>
 

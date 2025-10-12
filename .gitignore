@@ -55,3 +55,7 @@ tests/
 
 # Trash
 trash/
+
+# MAGIN v1.3: User configuration and secrets (v1.4: keep .default template)
+config/user_config.json
+# Note: user_config.json.default is tracked for distribution

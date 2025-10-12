@@ -137,39 +137,27 @@ def calculate_final_result(
     responses: List[Dict[str, Any]],
     judgment_severity: float,
     hard_flags: List[str]
-) -> Tuple[str, str, str]:
+) -> Tuple[str, str, str, float]:
     """
-    Calculate final judgment result with NEW SPEC features.
+    Calculate final judgment result (UPDATED for Task T5).
+
+    変更内容:
+    - risk < 0.6 制約を完全削除
+    - _determine_final_decision()を呼び出す新アーキテクチャ
 
     Priority Logic:
     1. Hard flags detected → Instant rejection
-    2. Risk floor constraint (any AI has risk < 0.6) → Block approval
-    3. Weighted scoring with dynamic thresholds
+    2. Weighted scoring with dynamic thresholds (risk制約削除済み)
 
     Weighted Scoring:
     - 承認 = 1.0 point
     - 部分的承認 = 0.5 point
     - 否決 = 0.0 point
 
-    Risk Floor Constraint (NEW SPEC):
-    - If ANY successful AI has risk < 0.6 → Approval blocked
-    - Max result becomes 条件付き承認 (if score >= 1.5) or 否決
-
-    Dynamic Threshold Logic:
-    - HIGH (severity >= 75):
-      - score >= 2.0 AND no hard flags AND no risk floor violation → 承認
-      - score >= 1.5 AND (hard flags OR risk floor violation) → 条件付き承認
-      - Otherwise → 否決
-
-    - MID (40 <= severity < 75):
-      - score >= 2.0 AND no hard flags AND no risk floor violation → 承認
-      - score >= 1.5 AND (hard flags OR risk floor violation) → 条件付き承認
-      - Otherwise → 否決
-
-    - LOW (severity < 40):
-      - score >= 2.0 AND no hard flags AND no risk floor violation → 承認
-      - score >= 1.0 AND (hard flags OR risk floor violation) → 条件付き承認
-      - Otherwise → 否決
+    Dynamic Threshold Logic (Task T4 _get_judgment_thresholds):
+    - HIGH (severity >= 80): approve=3.0, conditional=2.0
+    - MID (50-79): approve=2.0, conditional=1.5
+    - LOW (<50): approve=1.5, conditional=1.0
 
     Args:
         responses: List of AI responses
@@ -177,10 +165,11 @@ def calculate_final_result(
         hard_flags: List of detected hard flags
 
     Returns:
-        Tuple[str, str, str]: (result, reasoning, severity_level)
+        Tuple[str, str, str, float]: (result, reasoning, severity_level, total_score)
         - result: "承認" | "否決" | "条件付き承認"
         - reasoning: Explanation string
         - severity_level: "HIGH" | "MID" | "LOW"
+        - total_score: Total decision score (0.0-3.0)
 
     Example:
         >>> responses = [
@@ -189,7 +178,7 @@ def calculate_final_result(
         ...     {"success": True, "response": {"decision": "部分的承認", "scores": {"risk": 0.7}}}
         ... ]
         >>> calculate_final_result(responses, 65.0, [])
-        ('承認', '判定用重大度65.0%（中リスク）で合計点2.5/3.0点。過半数の要件を満たし承認されました。', 'MID')
+        ('承認', '合計点2.5/2.0 (MID重大度)', 'MID', 2.5)
     """
     # Step 0: Check for NOT_APPLICABLE (意思決定以外の入力)
     successful_responses = [r for r in responses if r.get("success") and r.get("response")]
@@ -197,115 +186,10 @@ def calculate_final_result(
 
     if not_applicable_count >= 2:  # 2つ以上のAIがNOT_APPLICABLEと判断
         logger.info(f"NOT_APPLICABLE detected: {not_applicable_count}/3 AIs")
-        return "NOT_APPLICABLE", "この質問は意思決定事項ではありません", "NONE"
+        return "NOT_APPLICABLE", "この質問は意思決定事項ではありません", "NONE", 0.0
 
-    # Step 1: Classify severity level
-    if judgment_severity >= 75:
-        severity_level = "HIGH"
-        risk_level_ja = "高リスク"
-    elif judgment_severity >= 40:
-        severity_level = "MID"
-        risk_level_ja = "中リスク"
-    else:
-        severity_level = "LOW"
-        risk_level_ja = "低リスク"
-
-    # Step 2: Hard flag check (highest priority)
-    if hard_flags:
-        flag_list = ', '.join(set(hard_flags))
-        reasoning = f"重大な懸念（{flag_list}）があるため否決されました。"
-        logger.warning(f"Rejected due to hard flags: {hard_flags}")
-        return "否決", reasoning, severity_level
-
-    # Step 3: Calculate weighted approval score
-    score = 0.0
-    successful_responses = [r for r in responses if r.get("success") and r.get("response")]
-
-    for r in successful_responses:
-        decision = r["response"].get("decision", "否決")
-        if decision == "承認":
-            score += 1.0
-        elif decision == "部分的承認":
-            score += 0.5
-        # 否決 = 0.0 (no addition)
-
-    logger.info(f"Weighted approval score: {score}/3.0")
-
-    # Step 4: Check risk floor constraint (NEW SPEC)
-    # If ANY successful AI has risk < 0.6, approval is blocked
-    risk_floor_violation = False
-    for r in successful_responses:
-        risk_score = r["response"].get("scores", {}).get("risk", 1.0)
-        if risk_score < 0.6:
-            risk_floor_violation = True
-            logger.warning(
-                f"Risk floor violation detected: {r.get('ai', 'unknown')} has risk={risk_score:.2f} < 0.6"
-            )
-            break
-
-    # Step 5: Apply dynamic threshold logic
-    # HIGH severity (>= 75)
-    if severity_level == "HIGH":
-        if score >= 2.0 and not risk_floor_violation:
-            reasoning = (
-                f"判定用重大度{judgment_severity:.1f}%（{risk_level_ja}）で合計点{score}/3.0点。"
-                f"過半数の要件を満たし承認されました。"
-            )
-            return "承認", reasoning, severity_level
-        elif score >= 1.5:
-            return (
-                "条件付き承認",
-                generate_conditional_reasoning(successful_responses, score, judgment_severity, risk_level_ja),
-                severity_level
-            )
-        else:
-            reasoning = (
-                f"判定用重大度{judgment_severity:.1f}%（{risk_level_ja}）で合計点{score}/3.0点。"
-                f"最低限の要件を満たさないため否決されました。"
-            )
-            return "否決", reasoning, severity_level
-
-    # MID severity (40-74)
-    elif severity_level == "MID":
-        if score >= 2.0 and not risk_floor_violation:
-            reasoning = (
-                f"判定用重大度{judgment_severity:.1f}%（{risk_level_ja}）で合計点{score}/3.0点。"
-                f"過半数の要件を満たし承認されました。"
-            )
-            return "承認", reasoning, severity_level
-        elif score >= 1.5:
-            return (
-                "条件付き承認",
-                generate_conditional_reasoning(successful_responses, score, judgment_severity, risk_level_ja),
-                severity_level
-            )
-        else:
-            reasoning = (
-                f"判定用重大度{judgment_severity:.1f}%（{risk_level_ja}）で合計点{score}/3.0点。"
-                f"過半数の要件を満たさないため否決されました。"
-            )
-            return "否決", reasoning, severity_level
-
-    # LOW severity (< 40)
-    else:
-        if score >= 2.0 and not risk_floor_violation:
-            reasoning = (
-                f"判定用重大度{judgment_severity:.1f}%（{risk_level_ja}）で合計点{score}/3.0点。"
-                f"承認されました。"
-            )
-            return "承認", reasoning, severity_level
-        elif score >= 1.0:
-            return (
-                "条件付き承認",
-                generate_conditional_reasoning(successful_responses, score, judgment_severity, risk_level_ja),
-                severity_level
-            )
-        else:
-            reasoning = (
-                f"判定用重大度{judgment_severity:.1f}%（{risk_level_ja}）で合計点{score}/3.0点。"
-                f"最低限の要件を満たさないため否決されました。"
-            )
-            return "否決", reasoning, severity_level
+    # Step 1: 新しい_determine_final_decision()を呼び出す
+    return _determine_final_decision(responses, judgment_severity, hard_flags)
 
 
 # ============================================================
@@ -383,7 +267,7 @@ def generate_conditional_reasoning(
 # Task 19: Main Orchestration - judge_issue
 # ============================================================
 
-async def judge_issue(issue: str) -> JudgmentModel:
+async def judge_issue(issue: str, persona_ids: Optional[List[str]] = None) -> JudgmentModel:
     """
     Main orchestration function for issue judgment.
 
@@ -398,6 +282,7 @@ async def judge_issue(issue: str) -> JudgmentModel:
 
     Args:
         issue: Issue text to judge (validated by JudgmentRequest)
+        persona_ids: Optional list of persona IDs (e.g., ["neutral_ai", "neutral_ai", "neutral_ai"])
 
     Returns:
         JudgmentModel: Complete judgment result with:
@@ -424,8 +309,8 @@ async def judge_issue(issue: str) -> JudgmentModel:
 
     logger.info(f"Starting judgment for issue: {issue[:50]}...")
 
-    # Step 1: Execute parallel judgment
-    responses = await run_parallel_judgment(issue)
+    # Step 1: Execute parallel judgment (with optional persona_ids)
+    responses = await run_parallel_judgment(issue, persona_ids=persona_ids)
 
     # Step 2: Validate responses (require at least 2 successful)
     successful_responses = [r for r in responses if r.get("success")]
@@ -442,8 +327,8 @@ async def judge_issue(issue: str) -> JudgmentModel:
             f" エラー詳細: {'; '.join(error_details)}"
         )
 
-    # Step 3: Calculate judgment severity
-    judgment_severity = calculate_judgment_severity(responses)
+    # Step 3: Calculate judgment severity (UPDATED to use _compute_final_severity from Task T4)
+    judgment_severity = _compute_final_severity(responses)
 
     # Calculate average severity for database storage
     severities = [r["response"]["severity"] for r in successful_responses]
@@ -452,8 +337,8 @@ async def judge_issue(issue: str) -> JudgmentModel:
     # Step 4: Check hard flags
     hard_flags = check_hard_flags(responses)
 
-    # Step 5: Calculate final result
-    result, reasoning, severity_level = calculate_final_result(
+    # Step 5: Calculate final result (UPDATED to use _determine_final_decision from Task T5)
+    result, reasoning, severity_level, total_score = calculate_final_result(
         responses,
         judgment_severity,
         hard_flags
@@ -485,12 +370,14 @@ async def judge_issue(issue: str) -> JudgmentModel:
     duration = (datetime.now() - start_time).total_seconds()
 
     # Step 8: Construct and return JudgmentModel
+    # IMPORTANT: avg_severity is kept for backward compatibility but judgment_severity is the correct value
     judgment = JudgmentModel(
         issue=issue,
         result=result,
-        avg_severity=round(avg_severity, 1),
+        avg_severity=judgment_severity,  # Store judgment_severity in avg_severity for DB compatibility
         judgment_severity=judgment_severity,
         severity_level=severity_level,
+        total_score=total_score,
         claude=ai_response_models.get("claude"),
         gemini=ai_response_models.get("gemini"),
         chatgpt=ai_response_models.get("chatgpt"),
@@ -527,3 +414,152 @@ def judge_issue_sync(issue: str) -> JudgmentModel:
         '承認'
     """
     return asyncio.run(judge_issue(issue))
+
+
+# ============================================================
+# NEW SPEC: Task T4 - Judgment Logic Base Functions
+# ============================================================
+
+def _compute_final_severity(responses: List[Dict[str, Any]]) -> float:
+    """
+    最終重大度（判定用重大度, judgment_severity）を計算
+
+    変更内容:
+    - 旧: max(平均重大度, 最大重大度 × 0.8)
+    - 新: max(AI A重大度, AI B重大度, AI C重大度)
+
+    Args:
+        responses: AI応答リスト
+
+    Returns:
+        float: 最終重大度 (0-100)
+
+    Example:
+        >>> responses = [
+        ...     {"success": True, "response": {"severity": 30}},
+        ...     {"success": True, "response": {"severity": 90}},
+        ...     {"success": True, "response": {"severity": 40}}
+        ... ]
+        >>> _compute_final_severity(responses)
+        90.0
+    """
+    severities = [
+        r["response"]["severity"]
+        for r in responses
+        if r.get("success") and r.get("response") and "severity" in r["response"]
+    ]
+
+    if not severities:
+        logger.warning("No valid severities found in responses")
+        return 0.0
+
+    final_severity = max(severities)
+    logger.info(f"Final severity (max of {severities}): {final_severity}")
+    return final_severity
+
+
+def _get_judgment_thresholds(severity: float) -> Dict[str, float]:
+    """
+    重大度別判定テーブル取得
+
+    要件定義準拠の閾値:
+    - HIGH (≥80): approve=3.0, conditional=2.0
+    - MID (50-79): approve=2.0, conditional=1.5
+    - LOW (<50): approve=1.5, conditional=1.0
+
+    Args:
+        severity: 最終重大度 (0-100)
+
+    Returns:
+        Dict[str, float]: {"approve": float, "conditional": float}
+
+    Example:
+        >>> _get_judgment_thresholds(85)
+        {"approve": 3.0, "conditional": 2.0}
+        >>> _get_judgment_thresholds(55)
+        {"approve": 2.0, "conditional": 1.5}
+        >>> _get_judgment_thresholds(30)
+        {"approve": 1.5, "conditional": 1.0}
+    """
+    if severity >= 80:
+        # HIGH重大度: 全員一致レベルの承認が必要
+        return {"approve": 3.0, "conditional": 2.0}
+    elif severity >= 50:
+        # MID重大度: 多数決で承認可能
+        return {"approve": 2.0, "conditional": 1.5}
+    else:
+        # LOW重大度: 過半数で承認可能
+        return {"approve": 1.5, "conditional": 1.0}
+
+
+def _determine_final_decision(
+    responses: List[Dict[str, Any]],
+    final_severity: float,
+    hard_flags: List[str]
+) -> Tuple[str, str, str, float]:
+    """
+    最終判定を決定
+
+    変更内容:
+    - risk < 0.6 制約を削除（ペルソナのdecision_policyに移譲）
+    - 合計点計算: 承認=1.0, 部分的承認=0.5, 否決=0.0
+    - 重大度別テーブル適用
+
+    Args:
+        responses: AI応答リスト
+        final_severity: 最終重大度
+        hard_flags: ハードフラグリスト
+
+    Returns:
+        Tuple[str, str, str, float]: (result, reasoning, severity_level, total_score)
+    """
+    # 1. ハードフラグチェック（最優先）
+    if "compliance" in hard_flags or "security" in hard_flags or "privacy" in hard_flags:
+        severity_level = "HIGH" if final_severity >= 80 else ("MID" if final_severity >= 50 else "LOW")
+        flag_list = ', '.join(set(hard_flags))
+        return (
+            "否決",
+            f"ハードフラグ検出: {flag_list}により自動否決",
+            severity_level,
+            0.0
+        )
+
+    # 2. 合計点計算
+    decision_scores = {
+        "承認": 1.0,
+        "部分的承認": 0.5,
+        "否決": 0.0
+    }
+
+    total_score = 0.0
+    successful_responses = [r for r in responses if r.get("success") and r.get("response")]
+
+    for r in successful_responses:
+        decision = r["response"].get("decision", "否決")
+        total_score += decision_scores.get(decision, 0.0)
+
+    logger.info(f"Total decision score: {total_score}/3.0")
+
+    # 3. 重大度別テーブル適用
+    thresholds = _get_judgment_thresholds(final_severity)
+
+    if final_severity >= 80:
+        severity_level = "HIGH"
+    elif final_severity >= 50:
+        severity_level = "MID"
+    else:
+        severity_level = "LOW"
+
+    # 4. 最終判定
+    if total_score >= thresholds["approve"]:
+        result = "承認"
+        reasoning = f"合計点{total_score:.1f}/{thresholds['approve']:.1f} ({severity_level}重大度)"
+    elif total_score >= thresholds["conditional"]:
+        result = "条件付き承認"
+        reasoning = f"合計点{total_score:.1f}/{thresholds['approve']:.1f} ({severity_level}重大度)"
+    else:
+        result = "否決"
+        reasoning = f"合計点{total_score:.1f}/{thresholds['conditional']:.1f}未満 ({severity_level}重大度)"
+
+    logger.info(f"Final decision: {result} - {reasoning}")
+    return (result, reasoning, severity_level, total_score)
