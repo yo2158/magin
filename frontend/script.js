@@ -2575,19 +2575,14 @@ async function testConnections() {
         // Load config
         const config = loadUserConfig();
 
-        // Check for paid models
-        const paidModels = [
-            'gemini-2.5-pro',
-            'anthropic/claude-sonnet-4.5',
-            'x-ai/grok-code-fast-1'
-        ];
-
-        const hasPaidModel = [config.node1, config.node2, config.node3].some(node =>
-            node.model && paidModels.some(pm => node.model.includes(pm))
+        // Check for API engines (excluding Ollama which is local)
+        const apiEngines = ['API_Gemini', 'API_OpenRouter'];
+        const hasApiEngine = [config.node1, config.node2, config.node3].some(node =>
+            apiEngines.includes(node.engine)
         );
 
-        if (hasPaidModel) {
-            const confirmed = confirm('テストでは実際のAPIリクエストが送信されます。モデルによっては、料金が発生する可能性があります。\n\n続行しますか？');
+        if (hasApiEngine) {
+            const confirmed = confirm('テストでは実際のAPIリクエストが送信されます。設定によっては料金が発生する可能性があります。\n\n続行しますか？');
             if (!confirmed) {
                 return;
             }
